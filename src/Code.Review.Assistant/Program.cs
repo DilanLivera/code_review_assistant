@@ -72,27 +72,32 @@ rootCommand.SetHandler(async (repoPath, pattern, provider, model) =>
                                              .AddConsoleExporter();
                                   });
 
-                           builder.Services.AddSingleton<IChatClient>(serviceProvider =>
+                           builder.Services.AddSingleton<IChatClient>(_ =>
                            {
-                               // Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
-                               // AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
-
-                               HttpClient httpClient = new();
-                               httpClient.BaseAddress = new Uri("http://localhost:11434");
-                               httpClient.Timeout = TimeSpan.FromMinutes(30);
-
-                               IChatClient client = provider.ToLower() switch
+                               switch (provider.ToLowerInvariant())
                                {
-                                   "ollama" => new OllamaApiClient(new Uri("http://localhost:11434"), model),
-                                   // "azure" => new ChatCompletionsClient(endpoint, azureKeyCredential).AsIChatClient(), // TODO: fix
-                                   _ => throw new ArgumentException($"Unknown provider: {provider}")
-                               };
+                                   case "ollama":
+                                       {
+                                           HttpClient httpClient = new();
+                                           httpClient.BaseAddress = new Uri("http://localhost:11434");
+                                           httpClient.Timeout = TimeSpan.FromMinutes(30);
 
-                               return client;
+                                           return new OllamaApiClient(httpClient, model);
+                                       }
+                                   case "azure":
+                                       {
+                                           Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
+                                           AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
+
+                                           return new ChatCompletionsClient(endpoint, azureKeyCredential).AsIChatClient(); // TODO: how do we pass the model?
+                                       }
+                                   default:
+                                       throw new ArgumentException($"Unknown provider: {provider}");
+                               }
                            });
 
                            builder.Services.AddSingleton<CodeReviewService>();
-                           builder.Services.AddSingleton(serviceProvider => new CodeReviewConfig(repoPath, pattern));
+                           builder.Services.AddSingleton(_ => new CodeReviewConfig(repoPath, pattern));
 
                            IHost host = builder.Build();
 
