@@ -77,6 +77,11 @@ rootCommand.SetHandler(async (repoPath, pattern, provider, model) =>
                            {
                                // Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
                                // AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
+
+                               HttpClient httpClient = new();
+                               httpClient.BaseAddress = new Uri("http://localhost:11434");
+                               httpClient.Timeout = TimeSpan.FromMinutes(30);
+
                                IChatClient client = provider.ToLower() switch
                                {
                                    "ollama" => new OllamaApiClient(new Uri("http://localhost:11434"), model),
