@@ -7,6 +7,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OllamaSharp;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -74,13 +75,12 @@ rootCommand.SetHandler(async (repoPath, pattern, provider, model) =>
 
                            builder.Services.AddSingleton<IChatClient>(serviceProvider =>
                            {
-                               Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
-                               AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
-                               ChatCompletionsClient chatCompletionsClient = new(endpoint, azureKeyCredential);
+                               // Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
+                               // AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
                                IChatClient client = provider.ToLower() switch
                                {
-                                   "ollama" => new OllamaChatClient(new Uri("http://localhost:11434"), model),
-                                   "azure" => new AzureAIInferenceChatClient(chatCompletionsClient, model),
+                                   "ollama" => new OllamaApiClient(new Uri("http://localhost:11434"), model),
+                                   // "azure" => new ChatCompletionsClient(endpoint, azureKeyCredential).AsIChatClient(), // TODO: fix
                                    _ => throw new ArgumentException($"Unknown provider: {provider}")
                                };
 
