@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using Azure;
 using Azure.AI.Inference;
 using Code.Review.Assistant;
@@ -12,104 +13,120 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
-Option<string> repoPathOption = new(name: "--repo-path",
-                                    description: "Path to the local git repository to review")
+Option<string> repoPathOption = new(name: "--repo-path")
 {
-    IsRequired = true
+    Description = "Path to the local git repository to review",
+    Required = true,
 };
 
-Option<string> filePatternOption = new(name: "--pattern",
-                                       description: "File pattern to match (e.g., *.cs, *.js)",
-                                       getDefaultValue: () => "*.cs");
+Option<string> filePatternOption = new(name: "--pattern")
+{
+    Description = "File pattern to match (e.g., *.cs, *.js)",
+    DefaultValueFactory = (result) => "*.cs"
+};
 
-Option<string> modelProviderOption = new(name: "--provider",
-                                         description: "AI model provider: ollama or azure",
-                                         getDefaultValue: () => "ollama");
+Option<string> modelProviderOption = new(name: "--provider")
+{
+    Description = "AI model provider: ollama or azure",
+    DefaultValueFactory = (result) => "ollama"
+};
 
-Option<string> modelNameOption = new(name: "--model",
-                                     description: "Model name to use",
-                                     getDefaultValue: () => "llama3.2");
+Option<string> modelNameOption = new(name: "--model")
+{
+    Description = "Model name to use",
+    DefaultValueFactory = (result) => "llama3.2"
+};
 
 RootCommand rootCommand = new(description: "AI-powered code review assistant");
-rootCommand.AddOption(repoPathOption);
-rootCommand.AddOption(filePatternOption);
-rootCommand.AddOption(modelProviderOption);
-rootCommand.AddOption(modelNameOption);
+rootCommand.Options.Add(repoPathOption);
+rootCommand.Options.Add(filePatternOption);
+rootCommand.Options.Add(modelProviderOption);
+rootCommand.Options.Add(modelNameOption);
 
-rootCommand.SetHandler(async (repoPath, pattern, provider, model) =>
-                       {
-                           HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+ParseResult parseResult = rootCommand.Parse(args);
 
-                           builder.Logging.ClearProviders();
-                           builder.Logging.AddConsole();
-                           builder.Logging.SetMinimumLevel(LogLevel.Information);
+if (parseResult.Errors.Count != 0)
+{
+    foreach (ParseError parseError in parseResult.Errors)
+    {
+        Console.Error.WriteLine(parseError.Message);
+    }
 
-                           ResourceBuilder resourceBuilder = ResourceBuilder.CreateDefault()
-                                                                            .AddService("CodeReviewAssistant");
+    return 1;
+}
 
-                           builder.Logging.AddOpenTelemetry(options =>
-                           {
-                               options.SetResourceBuilder(resourceBuilder);
-                               options.AddConsoleExporter();
-                               options.IncludeFormattedMessage = true;
-                               options.IncludeScopes = true;
-                           });
+string repoPath = parseResult.GetValue(repoPathOption) ?? throw new InvalidOperationException("Repo path option must contain a value");
+string pattern = parseResult.GetValue(filePatternOption) ?? throw new InvalidOperationException("File pattern option must contain a value");
+string provider = parseResult.GetValue(modelProviderOption) ?? throw new InvalidOperationException("Model provider option must contain a value");
+string model = parseResult.GetValue(modelNameOption) ?? throw new InvalidOperationException("Model name option must contain a value");
 
-                           builder.Services
-                                  .AddOpenTelemetry()
-                                  .WithMetrics(metrics =>
-                                  {
-                                      metrics.SetResourceBuilder(resourceBuilder)
-                                             .AddMeter("Microsoft.Extensions.AI")
-                                             .AddMeter("Microsoft.Agents.AI")
-                                             .AddConsoleExporter();
-                                  })
-                                  .WithTracing(tracing =>
-                                  {
-                                      tracing.SetResourceBuilder(resourceBuilder)
-                                             .AddSource("Microsoft.Extensions.AI")
-                                             .AddSource("Microsoft.Agents.AI")
-                                             .AddConsoleExporter();
-                                  });
+HostApplicationBuilder builder = Host.CreateApplicationBuilder();
 
-                           builder.Services.AddSingleton<IChatClient>(_ =>
-                           {
-                               switch (provider.ToLowerInvariant())
-                               {
-                                   case "ollama":
-                                       {
-                                           HttpClient httpClient = new();
-                                           httpClient.BaseAddress = new Uri("http://localhost:11434");
-                                           httpClient.Timeout = TimeSpan.FromMinutes(30);
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-                                           return new OllamaApiClient(httpClient, model);
-                                       }
-                                   case "azure":
-                                       {
-                                           Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
-                                           AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
+ResourceBuilder resourceBuilder = ResourceBuilder.CreateDefault()
+                                                 .AddService("CodeReviewAssistant");
 
-                                           return new ChatCompletionsClient(endpoint, azureKeyCredential).AsIChatClient(); // TODO: how do we pass the model?
-                                       }
-                                   default:
-                                       throw new ArgumentException($"Unknown provider: {provider}");
-                               }
-                           });
+builder.Logging.AddOpenTelemetry(options =>
+{
+    options.SetResourceBuilder(resourceBuilder);
+    options.AddConsoleExporter();
+    options.IncludeFormattedMessage = true;
+    options.IncludeScopes = true;
+});
 
-                           builder.Services.AddSingleton<CodeReviewService>();
-                           builder.Services.AddSingleton(_ => new CodeReviewConfig(repoPath, pattern));
+builder.Services
+       .AddOpenTelemetry()
+       .WithMetrics(metrics =>
+       {
+           metrics.SetResourceBuilder(resourceBuilder)
+                  .AddMeter("Microsoft.Extensions.AI")
+                  .AddMeter("Microsoft.Agents.AI")
+                  .AddConsoleExporter();
+       })
+       .WithTracing(tracing =>
+       {
+           tracing.SetResourceBuilder(resourceBuilder)
+                  .AddSource("Microsoft.Extensions.AI")
+                  .AddSource("Microsoft.Agents.AI")
+                  .AddConsoleExporter();
+       });
 
-                           IHost host = builder.Build();
+builder.Services.AddSingleton<IChatClient>(_ =>
+{
+    switch (provider.ToLowerInvariant())
+    {
+        case "ollama":
+            {
+                HttpClient httpClient = new();
+                httpClient.BaseAddress = new Uri("http://localhost:11434");
+                httpClient.Timeout = TimeSpan.FromMinutes(30);
 
-                           CodeReviewService reviewService = host.Services.GetRequiredService<CodeReviewService>();
-                           await reviewService.RunReviewAsync();
+                return new OllamaApiClient(httpClient, model);
+            }
+        case "azure":
+            {
+                Uri endpoint = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_ENDPOINT") ?? throw new InvalidOperationException("AZURE_INFERENCE_ENDPOINT not set"));
+                AzureKeyCredential azureKeyCredential = new(Environment.GetEnvironmentVariable("AZURE_INFERENCE_KEY") ?? throw new InvalidOperationException("AZURE_INFERENCE_KEY not set"));
 
-                       },
-                       repoPathOption,
-                       filePatternOption,
-                       modelProviderOption,
-                       modelNameOption);
+                return new ChatCompletionsClient(endpoint, azureKeyCredential).AsIChatClient(); // TODO: how do we pass the model?
+            }
+        default:
+            throw new ArgumentException($"Unknown provider: {provider}");
+    }
+});
 
-return await rootCommand.InvokeAsync(args);
+builder.Services.AddSingleton<CodeReviewService>();
+builder.Services.AddSingleton(_ => new CodeReviewConfig(repoPath, pattern));
+
+IHost host = builder.Build();
+
+CodeReviewService reviewService = host.Services.GetRequiredService<CodeReviewService>();
+await reviewService.RunReviewAsync();
+
+return 0;
+
 
 public sealed record CodeReviewConfig(string RepoPath, string FilePattern);
