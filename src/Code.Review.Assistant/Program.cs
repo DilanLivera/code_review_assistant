@@ -72,7 +72,7 @@ ResourceBuilder resourceBuilder = ResourceBuilder.CreateDefault()
 builder.Logging.AddOpenTelemetry(options =>
 {
     options.SetResourceBuilder(resourceBuilder);
-    options.AddConsoleExporter();
+    options.AddOtlpExporter(o => o.Endpoint = new Uri("http://localhost:18889"));
     options.IncludeFormattedMessage = true;
     options.IncludeScopes = true;
 });
@@ -84,14 +84,14 @@ builder.Services
            metrics.SetResourceBuilder(resourceBuilder)
                   .AddMeter("Microsoft.Extensions.AI")
                   .AddMeter("Microsoft.Agents.AI")
-                  .AddConsoleExporter();
+                  .AddOtlpExporter(options => options.Endpoint = new Uri("http://localhost:18889"));
        })
        .WithTracing(tracing =>
        {
            tracing.SetResourceBuilder(resourceBuilder)
                   .AddSource("Microsoft.Extensions.AI")
                   .AddSource("Microsoft.Agents.AI")
-                  .AddConsoleExporter();
+                  .AddOtlpExporter(options => options.Endpoint = new Uri("http://localhost:18889"));
        });
 
 builder.Services.AddSingleton<IChatClient>(_ =>
